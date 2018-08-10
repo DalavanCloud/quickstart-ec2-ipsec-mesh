@@ -1,0 +1,454 @@
+#
+# Copyright 2017-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License").
+# You may not use this file except in compliance with the License.
+# A copy of the License is located at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# or in the "license" file accompanying this file. This file is distributed
+# on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# ===========================
+# NO CHANGE SHOUD BE REQUIRED
+# ===========================
+#
+#
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Components for IPSec Mesh, certificate generation, EC2 ipsec configration, metrics and cert renew
+Parameters:
+
+  S3SourcesBucket:
+    Type: String
+    Description: Bucket with sources
+    MaxLength: 63
+    MinLength: 3
+
+  S3CaBucket:
+    Type: String
+    Description: CA bucket with CA key and certificate. Keys are constant ca.cert.pem and ce.key.encrypted.pem
+                 Password must be provided and encrypted in Lambda env parameters
+    MaxLength: 63
+    MinLength: 3
+
+  S3UserCertsBucket:
+    Type: String
+    Description: User certs bucket where the cert will be published
+    MaxLength: 63
+    MinLength: 3
+
+Resources:
+ 
+  DecryptCaKeyEncryptUserP12Policy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub "DecryptCaKeyEncryptP12Pwd-${AWS::StackName}"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Action:
+              - 'kms:Decrypt'
+            Effect: 'Allow'
+            Resource:
+                    - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${AWS::StackName}-CA"
+          -
+            Action:
+              - 'kms:Encrypt'
+            Effect: 'Allow'
+            Resource:
+                    - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${AWS::StackName}-USER"
+          -
+            Action:
+              - 'kms:GenerateRandom'
+            Effect: 'Allow'
+            Resource: '*'
+          -
+            Action:
+              - 'ec2:DescribeInstances'
+            Effect: 'Allow'
+            Resource:  '*'
+                    
+
+  Ec2IPSecInstancePolicy:
+    DependsOn:
+        - generateCertificateBundle 
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub "Ec2IPsec-${AWS::StackName}Instance"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Action:
+            - 'kms:Decrypt'
+            Effect: 'Allow'
+            Resource:
+              - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${AWS::StackName}-USER"
+          -
+            Action:
+                    - 'cloudwatch:PutMetricData'
+            Effect: 'Allow'
+            Resource: '*'
+  
+  LambdaIPSecPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub "LambdaIPSec-${AWS::StackName}"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Action:
+                - 'ssm:SendCommand'
+                - 's3:GetObject'
+                - 'ssm:ListCommands'
+                - 'ssm:DescribeInstanceInformation'
+                - 'lambda:InvokeFunction' 
+                - 'ec2:DescribeInstances'
+            Effect: 'Allow'
+            Resource:  '*'
+          -
+            Action:
+                - 'ec2:DeleteTags'
+                - 'ec2:CreateTags'
+            Effect: 'Allow'
+            Resource:  'arn:aws:ec2:*:*:instance/*'
+
+  Ec2Role:
+    DependsOn:
+      - Ec2IPSecInstancePolicy 
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub "Ec2IPsec-${AWS::StackName}"
+      Path: /
+      AssumeRolePolicyDocument:
+         Version: "2012-10-17"
+         Statement:
+              Effect: Allow
+              Principal:
+                 Service: "ec2.amazonaws.com"
+              Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - Ref: Ec2IPSecInstancePolicy
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+
+  RootInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+       Path: "/"
+       Roles: 
+          - Ref: Ec2Role
+       InstanceProfileName: !Sub "Ec2IPsec-${AWS::StackName}"      
+
+  CaLambdaRole:
+    DependsOn:
+      - DecryptCaKeyEncryptUserP12Policy
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub "LambdaGenerateCertificateBundle-${AWS::StackName}"
+      Path: /
+      AssumeRolePolicyDocument:
+         Version: "2012-10-17"
+         Statement:
+              Effect: Allow
+              Principal:
+                Service: "lambda.amazonaws.com"
+              Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSLambdaExecute'
+        - Ref: DecryptCaKeyEncryptUserP12Policy
+
+  IPSecLambdaRole:
+    DependsOn:
+      - LambdaIPSecPolicy
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub "IPSecLambda-${AWS::StackName}"
+      Path: /
+      AssumeRolePolicyDocument:
+         Version: "2012-10-17"
+         Statement:
+              Effect: Allow
+              Principal:
+                Service: "lambda.amazonaws.com"
+              Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - Ref: LambdaIPSecPolicy
+
+  CaCmsKey:
+    Type: "AWS::KMS::Key"
+    Properties:
+      Description: Protects the CA key
+      Enabled: true
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-10
+        Statement:
+        - Sid: Allow administration of the key
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: ['kms:Create*', 'kms:Describe*', 'kms:Enable*', 'kms:List*', 'kms:Put*',
+            'kms:Update*', 'kms:Revoke*', 'kms:Disable*', 'kms:Get*', 'kms:Delete*',
+            'kms:ScheduleKeyDeletion', 'kms:CancelKeyDeletion']
+          Resource: '*'
+        - Sid: Use of the key
+          Effect: Allow
+          Principal:
+            AWS: !GetAtt CaLambdaRole.Arn
+          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
+          Resource: '*'
+        - Sid: Allow local use of the key
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
+          Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+
+  CaKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/${AWS::StackName}-CA"
+      TargetKeyId: !Ref CaCmsKey
+
+  UserCmsKey:
+    Type: "AWS::KMS::Key"
+    DependsOn:
+      - CaLambdaRole
+      - Ec2Role
+    Properties:
+      Description: Protects the User key
+      Enabled: true
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-10
+        Statement:
+        - Sid: Allow administration of the key
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: ['kms:Create*', 'kms:Describe*', 'kms:Enable*', 'kms:List*', 'kms:Put*',
+            'kms:Update*', 'kms:Revoke*', 'kms:Disable*', 'kms:Get*', 'kms:Delete*',
+            'kms:ScheduleKeyDeletion', 'kms:CancelKeyDeletion']
+          Resource: '*'
+        - Sid: Use of the key by EC2
+          Effect: Allow
+          Principal:
+            AWS: !GetAtt Ec2Role.Arn
+          Action: ['kms:Decrypt' ]
+          Resource: '*'
+        - Sid: Use of the key ID Lambda cert issuer
+          Effect: Allow
+          Principal:
+            AWS: !GetAtt CaLambdaRole.Arn
+          Action: ['kms:Encrypt', 'kms:GenerateRandom' ]
+          Resource: '*'
+        - Sid: Allow local use of the key
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
+          Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+
+  UserKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/${AWS::StackName}-USER"
+      TargetKeyId: !Ref UserCmsKey
+
+  generateCertificateBundle:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - CaLambdaRole
+      - CaCmsKey
+    Properties:
+      FunctionName: !Sub "GenerateCertificate-${AWS::StackName}"
+      Handler: generate_certifcate_lambda_function.lambda_handler
+      Runtime: python3.6
+      Code:
+        S3Bucket:
+          Ref: S3SourcesBucket
+        S3Key: 'generate_certifcate_lambda_function.zip'
+      Description: 'Generates certificates'
+      MemorySize:  256
+      Timeout: 30
+      Role: !GetAtt CaLambdaRole.Arn
+      KmsKeyArn: !GetAtt CaCmsKey.Arn
+      Environment:
+        Variables:
+          CA_BUCKET:
+            Ref: S3CaBucket
+          CA_FILE: ca.cert.pem
+          CA_KEY_FILE: ca.key.encrypted.pem
+          CA_PWD: "Put yourCA key password here"
+          CERTS_BUCKET:
+            Ref: S3UserCertsBucket
+          P12_CMS_KEYID: !Sub "alias/${AWS::StackName}-USER"
+
+  IPSecSetupLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - IPSecLambdaRole
+    Properties:
+      FunctionName: !Sub "IPSecSetup-${AWS::StackName}"
+      Handler: ipsec_setup_lambda_function.lambda_handler
+      Runtime: python3.6
+      Code:
+        S3Bucket:
+          Ref: S3SourcesBucket
+        S3Key: 'ipsec_setup_lambda_function.zip'
+      Description: 'Configures IPSec and certificate on EC2 over SSM'
+      MemorySize:  320
+      Timeout: 180
+      Role: !GetAtt IPSecLambdaRole.Arn
+      Environment:
+        Variables:
+          CertificateEnrollLambda: !Sub "GenerateCertificate-${AWS::StackName}"
+          IPSecSetUpScript: setup_ipsec.sh
+          ResultTagValue: enabled
+          SelectorTagName: IPSec
+          SelectorTagValue: todo
+          SourceBucket:
+            Ref: S3SourcesBucket
+
+  enrollCertLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - IPSecLambdaRole
+    Properties:
+      FunctionName: !Sub "ReenrollCertificate-${AWS::StackName}"
+      Handler: enroll_cert_lambda_function.lambda_handler
+      Runtime: python3.6
+      Code:
+        S3Bucket: 
+          Ref: S3SourcesBucket
+        S3Key: 'enroll_cert_lambda_function.zip'
+      Description: 'Enrolls certifcate on EC2 over SSM'
+      MemorySize:  320
+      Timeout: 300
+      Role: !GetAtt IPSecLambdaRole.Arn
+      Environment:
+        Variables:
+          IPSecSetupLambda: !Sub "IPSecSetup-${AWS::StackName}"
+          SelectorTagName: IPSec
+          SelectorTagValue: enabled
+          SourceBucket:
+            Ref: S3SourcesBucket
+
+  eventIPSecSetup:
+     DependsOn:
+        - IPSecSetupLambda
+     Type: "AWS::Events::Rule"
+     Properties:
+       Description: Instance moved to state running trigger IPSec setup 
+       Name: !Sub "SetupIPSecOnEC2-${AWS::StackName}"       
+       EventPattern: 
+         detail-type:
+            - EC2 Instance State-change Notification
+         source:
+            - aws.ec2
+         detail:
+           state:
+            - running
+       State: "ENABLED"
+       Targets: 
+           - 
+             Arn: 
+               !GetAtt IPSecSetupLambda.Arn
+             Id: 'IPSecSetup'    
+
+  PermissionForEventsIPSecSetup: 
+     Type: "AWS::Lambda::Permission"
+     Properties: 
+        FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:IPSecSetup-${AWS::StackName}"
+        Action: "lambda:InvokeFunction"
+        Principal: "events.amazonaws.com"
+        SourceArn:  !GetAtt eventIPSecSetup.Arn
+
+  eventCertEnroll:
+     DependsOn:
+             - enrollCertLambda
+     Type: "AWS::Events::Rule"
+     Properties:
+       Description: Schadule re-renollment of certificate
+       Name: !Sub "ReenrollCertificate-${AWS::StackName}"
+       ScheduleExpression: cron(2 * ? * 4 *)
+       State: "ENABLED"
+       Targets: 
+           - 
+            Arn: !GetAtt enrollCertLambda.Arn
+            Id: 'enrollCertLambda'    
+    
+  PermissionForEventsEnrollCert: 
+     Type: "AWS::Lambda::Permission"
+     Properties: 
+        FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ReenrollCertificate-${AWS::StackName}"
+        Action: "lambda:InvokeFunction"
+        Principal: "events.amazonaws.com"
+        SourceArn:  !GetAtt eventCertEnroll.Arn
+
+  Alerts: 
+     Type: "AWS::SNS::Topic"
+     Properties: 
+       TopicName: !Sub "IPSec_Config_Alarms_${AWS::StackName}"
+
+  IPSecConfAlarm:
+     Type: AWS::CloudWatch::Alarm
+     Properties:
+        AlarmDescription: "Alarm if IPSec confguration fails"
+        AlarmName: !Sub "IPSec configuration (${AWS::StackName})"
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+         - Name: FunctionName
+           Value: !Ref IPSecSetupLambda
+        Statistic: Sum
+        Period: 3600
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:           
+         - !Ref Alerts
+
+  CertEnrollConfAlarm:
+     Type: AWS::CloudWatch::Alarm
+     Properties:
+        AlarmDescription: "Alarm if cert reenrollment fails"
+        Namespace: AWS/Lambda
+        AlarmName: !Sub "Cert reenrollment (${AWS::StackName})"
+        MetricName: Errors
+        Dimensions:
+         - Name: FunctionName
+           Value: !Ref enrollCertLambda
+        Statistic: Sum
+        Period: 3600
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:           
+         - !Ref Alerts
+
+Outputs:
+    CertEnrollLambda:
+       Description: ARN of Lambda for certificate generation 
+       Value: !GetAtt generateCertificateBundle.Arn
+    CaCmsKey:
+       Description: CA CMS Crypto key 
+       Value: !GetAtt CaCmsKey.Arn

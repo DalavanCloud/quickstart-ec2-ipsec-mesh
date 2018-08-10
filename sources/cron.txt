@@ -1,0 +1,1 @@
+*/5 * * * * sudo /root/ipsec/cronIPSecStats.sh 

@@ -1,3 +1,4 @@
+
 ![Overview](/docs/pics/Tweet_image.png)
 
 # Opportunistic IPSec Mesh (overlay network) for AWS EC2
@@ -62,7 +63,9 @@ Note: Steps or details that I don’t explicitly mention can be set to default (
 
 1. Select an AMI that supports libreswan, like RedHat, Amazon Linux 2 or CentOS. 
 
-2. Select the IAM Role already configured by the solution with the pattern Ec2IPsec-{stackname}. (You don’t need this step for Amazon Linux 2, since SSM is preinstalled.)
+2. Select the IAM Role already configured by the solution with the pattern Ec2IPsec-{stackname}. 
+
+Next you need to install SSM agent. You don’t need the following step for Amazon Linux 2, since SSM is preinstalled.
  
 Select under Advances setting user data and active SSM Agent by providing to following
 
@@ -73,7 +76,7 @@ sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/late
 sudo systemctl start amazon-ssm-agent
 ```
 
-3. Set the tag name to IPSec with the value todo. This is the selector to install and maintain IPSec. 
+3. Set the tag name to **IPSec** with the value **todo**. This is the selector to install and maintain IPSec. 
 
 4. On the Configuration page for the security group, allow ESP (Protocol 50) and IKE (UDP 500) for your network, like 172.31.0.0/16
  

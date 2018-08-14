@@ -41,6 +41,11 @@ Parameters:
     MaxLength: 63
     MinLength: 3
 
+  VpcId:
+    Type: String
+    Description: Provide the vpc-id if you want restict the provisioning
+    Default: 'any'
+
 Resources:
  
   DecryptCaKeyEncryptUserP12Policy:
@@ -323,6 +328,8 @@ Resources:
           ResultTagValue: enabled
           SelectorTagName: IPSec
           SelectorTagValue: todo
+          VpcId:
+            Ref: VpcId
           SourceBucket:
             Ref: S3SourcesBucket
 

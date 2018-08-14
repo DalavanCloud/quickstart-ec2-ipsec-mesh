@@ -35,6 +35,8 @@ You’ll need the following resources to deploy the solution:
 - Linux RedHat, Amazon Linux 2, or CentOS, all of which already support libreswan minimum v3.20.  For Ubuntu, you need to compile the libreswan package (see https://github.com/libreswan/libreswan) and adapt the script to use APT packet manager instead of Yum. In the next steps, I do not consider Ubuntu.
 - During the EC2 setup, Python, pip, jq, SDK for Python, and curl must be installed. You can pre-install them, or the solution will install them using Yum Package Manager. You’ll also need internet access on the EC2, typically via an AWS network address translation (NAT) gateway
 
+**Note**: EC2 instance must have IP connectivity, like same VPC, allowing NACLs and Security Groups. This solution CANNOT deliver extra connectivity between the instances like VPC peering or similar. 
+
 ## Installation (one-time setup)
 
 On a trusted Unix/Linux/MacOS machine that has Admin access to AWS and AWS SDK for Python already installed, complete the following steps:
@@ -51,6 +53,7 @@ On a trusted Unix/Linux/MacOS machine that has Admin access to AWS and AWS SDK f
   - Reuse of already existing CA? (default: no) 
   - Leave encrypted backup copy of the CA key? The password will be printed to stdout (default: no) 
   - Cloud formation stackname (default: ipsec-{random string}). 
+  - vpc-id if you want to restrict the provisioning of IPSec to certain vpc-id (default: any)
 
 A sample of the execution can be found at the end of document 
    
@@ -134,54 +137,56 @@ To see a list of IPSec tunnels you can execute
 
 ## Output example
 ~~~~
- ./aws_setup.py -r eu-west-3 -p ipsec.hostcerts.v -c ipsec.cacrypto.v -s ipsec.sources.v
-Provisioning IPsec-Mesh version 0.1
+$ ./aws_setup.py -r  us-west-1   -p ipsec.hostcerts.1234 -c ipsec.cacrypto.1234 -s ipsec.sources.1232
+Provisioning IPsec-Mesh version 0.2 
 
 Use --help for more options
 
 Arguments:
 ----------------------------
-Region:                       eu-west-3
-Hostcerts bucket:             ipsec.hostcerts.v
-CA crypto bucket:             ipsec.cacrypto.v
-Conf and sources bucket:      ipsec.sources.v
+Region:                       us-west-1
+Vpc ID:                       any
+Hostcerts bucket:             ipsec.hostcerts.1234
+CA crypto bucket:             ipsec.cacrypto.1234
+Conf and sources bucket:      ipsec.sources.1232
 CA use existing:              no
 Leave CA key in local folder: no
-AWS stackname:                ipsec-cjspypuv
+AWS stackname:                ipsec-ggwehyve
 ---------------------------- 
 Do you want to proceed ? [yes|no]: yes
-The bucket ipsec.sources.v already exists
-File config/clear uploaded in bucket ipsec.sources.v
-File config/private uploaded in bucket ipsec.sources.v
-File config/oe-cert.conf uploaded in bucket ipsec.sources.v
-File sources/enroll_cert_lambda_function.zip uploaded in bucket ipsec.sources.v
-File sources/generate_certifcate_lambda_function.zip uploaded in bucket ipsec.sources.v
-File sources/ipsec_setup_lambda_function.zip uploaded in bucket ipsec.sources.v
-File sources/cron.txt uploaded in bucket ipsec.sources.v
-File sources/cronIPSecStats.sh uploaded in bucket ipsec.sources.v
-File sources/ipsecSetup.yaml uploaded in bucket ipsec.sources.v
-File sources/installCert.py uploaded in bucket ipsec.sources.v
-File sources/setup_ipsec.sh uploaded in bucket ipsec.sources.v
-File README.md uploaded in bucket ipsec.sources.v
-File aws_setup.py uploaded in bucket ipsec.sources.v
-The bucket ipsec.hostcerts.v already exists
-Stack ipsec-cjspypuv creation started. Waiting to finish (ca 3-5 min)
-Created CA CMS key arn:aws:kms:eu-west-3:123456789012:key/1234567890-8c45-49de-bde8-1969dc0b9a92
-Certificate generation lambda arn:aws:lambda:eu-west-3:123456789012:function:GenerateCertificate-ipsec-cjspypuv
-Generating a 4096 bit RSA private key
-...................................................++
-........................................................................................................++
-writing new private key to './ca.key.encrypted.pem'
------
-Certificate and key generated. Subject CN=ipsec.eu-west-3 Valid 10 years
-The bucket ipsec.cacrypto.v already exists
-Encrypted CA key uploaded in bucket ipsec.cacrypto.v
-CA cert uploaded in bucket ipsec.cacrypto.v
+bucket does not exists
+Bucket ipsec.sources.1232 created
+File config/clear uploaded in bucket ipsec.sources.1232
+File config/private uploaded in bucket ipsec.sources.1232
+File config/clear-or-private uploaded in bucket ipsec.sources.1232
+File config/private-or-clear uploaded in bucket ipsec.sources.1232
+File config/oe-cert.conf uploaded in bucket ipsec.sources.1232
+File sources/enroll_cert_lambda_function.zip uploaded in bucket ipsec.sources.1232
+File sources/generate_certifcate_lambda_function.zip uploaded in bucket ipsec.sources.1232
+File sources/ipsec_setup_lambda_function.zip uploaded in bucket ipsec.sources.1232
+File sources/cron.txt uploaded in bucket ipsec.sources.1232
+File sources/cronIPSecStats.sh uploaded in bucket ipsec.sources.1232
+File sources/ipsecSetup.yaml uploaded in bucket ipsec.sources.1232
+File sources/setup_ipsec.sh uploaded in bucket ipsec.sources.1232
+File README.md uploaded in bucket ipsec.sources.1232
+File aws_setup.py uploaded in bucket ipsec.sources.1232
+bucket does not exists
+Bucket ipsec.hostcerts.1234 created
+Stack ipsec-ggwehyve creation started. Waiting to finish (ca 3-5 min)
+Created CA CMS key arn:aws:kms:us-west-1:123456789012:key/f43424e2-8097-4b59-acc7-a1a1a1a1a1a1a1a1
+Certificate generation lambda arn:aws:lambda:us-west-1:123456789012:function:GenerateCertificate-ipsec-ggwehyve
+Generating RSA private key, 4096 bit long modulus
+.....................................................................................++
+................................................................................................................................................................................................................................................................++
+e is 65537 (0x10001)
+Certificate and key generated. Subject CN=ipsec.us-west-1 Valid 10 years
+bucket does not exists
+Bucket ipsec.cacrypto.1234 created
+Encrypted CA key uploaded in bucket ipsec.cacrypto.1234
+CA cert uploaded in bucket ipsec.cacrypto.1234
 CA cert and key remove from local folder
-Lambda functionarn:aws:lambda:eu-west-3:12345678901234:function:GenerateCertificate-ipsec-cjspypuv updated
+Lambda functionarn:aws:lambda:us-west-1:123456789012:function:GenerateCertificate-ipsec-ggwehyve updated
 done :-)
-
-Process finished with exit code 0
 ~~~~
 
 ## Security 

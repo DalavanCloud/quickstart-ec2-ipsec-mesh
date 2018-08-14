@@ -26,7 +26,7 @@ conf_source_files = ['config/clear', 'config/private', 'config/clear-or-private'
                      'sources/ipsecSetup.yaml', 'sources/setup_ipsec.sh',
                      'README.md', 'aws_setup.py']
 
-code_version = "0.2 Vesselin2 Vesselin"
+code_version = "0.3"
 
 # Create bucket if does not exists
 # if the bucket exists the region must match 
@@ -74,13 +74,14 @@ def upload_files(region, hostcerts_bucket, sources_bucket):
     createBucket(s3,region, hostcerts_bucket)
 
 # Provisions stack
-def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket):
+def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vpcId):
     cf = boto3.client('cloudformation', region_name=region)
     cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsecSetup.yaml',
                     Parameters=[
                         {'ParameterKey': 'S3SourcesBucket', 'ParameterValue': sources_bucket},
                         {'ParameterKey': 'S3CaBucket', 'ParameterValue': cacrypto_bucket},
-                        {'ParameterKey': 'S3UserCertsBucket', 'ParameterValue': hostcerts_bucket}],
+                        {'ParameterKey': 'S3UserCertsBucket', 'ParameterValue': hostcerts_bucket},
+                        {'ParameterKey': 'VpcId', 'ParameterValue': vpcId}],
                     Capabilities=['CAPABILITY_NAMED_IAM'])
 
     print('Stack ' + stackname + ' creation started. Waiting to finish (ca 3-5 min)')
@@ -192,6 +193,10 @@ if __name__ == '__main__':
                    metavar="[yes|no]",
                    help="Leaves a copy of CA key enincrypted in the current local folder. It can used for local backup.[no/yes]")
 
+    p.add_argument("--vpc_id", "-v", default="any",
+                   metavar="[vpc-id|any]",
+                   help="Operate in provided vpc-id or in any vpc in the region (default)")
+    
     print('Provisioning IPsec-Mesh version ' + code_version)
     print('\nUse --help for more options\n')
 
@@ -210,6 +215,7 @@ if __name__ == '__main__':
     print('Arguments:')
     print('----------------------------')
     print('Region:                       ' + args.region)
+    print('Vpc ID:                       ' + args.vpc_id)
     print('Hostcerts bucket:             ' + hostcerts_bucket)
     print('CA crypto bucket:             ' + cacrypto_bucket)
     print('Conf and sources bucket:      ' + conf_sources_bucket)
@@ -225,7 +231,7 @@ if __name__ == '__main__':
 
     upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
     
-    caCmsKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket)
+    caCmsKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket, args.vpc_id)
 
     if args.ca_use_existing == 'no':
         generate_ca(args.region, hostcerts_bucket, cacrypto_bucket, args.leave_cakey_in_folder, caCmsKey,

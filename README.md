@@ -186,6 +186,7 @@ Encrypted CA key uploaded in bucket ipsec.cacrypto.1234
 CA cert uploaded in bucket ipsec.cacrypto.1234
 CA cert and key remove from local folder
 Lambda functionarn:aws:lambda:us-west-1:123456789012:function:GenerateCertificate-ipsec-ggwehyve updated
+Resource policy for CA CMK hardened - removed action kms:encrypt
 done :-)
 ~~~~
 

@@ -155,7 +155,7 @@ Resources:
       - DecryptCaKeyEncryptUserP12Policy
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub "LambdaGenerateCertificateBundle-${AWS::StackName}"
+      RoleName: !Sub "GenerateCertificate-${AWS::StackName}"
       Path: /
       AssumeRolePolicyDocument:
          Version: "2012-10-17"
@@ -187,7 +187,7 @@ Resources:
         - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
         - Ref: LambdaIPSecPolicy
 
-  CaCmsKey:
+  CaKmsKey:
     Type: "AWS::KMS::Key"
     Properties:
       Description: Protects the CA key
@@ -209,13 +209,13 @@ Resources:
           Effect: Allow
           Principal:
             AWS: !GetAtt CaLambdaRole.Arn
-          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
+          Action: [ 'kms:Decrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey']
           Resource: '*'
-        - Sid: Allow local use of the key
+        - Sid: Allow local use 
           Effect: Allow
           Principal:
             AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
+          Action: ['kms:Encrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey']
           Resource: '*'
       Tags:
         - Key: Name
@@ -225,9 +225,9 @@ Resources:
     Type: AWS::KMS::Alias
     Properties:
       AliasName: !Sub "alias/${AWS::StackName}-CA"
-      TargetKeyId: !Ref CaCmsKey
+      TargetKeyId: !Ref CaKmsKey
 
-  UserCmsKey:
+  UserKmsKey:
     Type: "AWS::KMS::Key"
     DependsOn:
       - CaLambdaRole
@@ -260,12 +260,6 @@ Resources:
             AWS: !GetAtt CaLambdaRole.Arn
           Action: ['kms:Encrypt', 'kms:GenerateRandom' ]
           Resource: '*'
-        - Sid: Allow local use of the key
-          Effect: Allow
-          Principal:
-            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-          Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey']
-          Resource: '*'
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}"
@@ -274,13 +268,13 @@ Resources:
     Type: AWS::KMS::Alias
     Properties:
       AliasName: !Sub "alias/${AWS::StackName}-USER"
-      TargetKeyId: !Ref UserCmsKey
+      TargetKeyId: !Ref UserKmsKey
 
   generateCertificateBundle:
     Type: 'AWS::Lambda::Function'
     DependsOn:
       - CaLambdaRole
-      - CaCmsKey
+      - CaKmsKey
     Properties:
       FunctionName: !Sub "GenerateCertificate-${AWS::StackName}"
       Handler: generate_certifcate_lambda_function.lambda_handler
@@ -293,7 +287,6 @@ Resources:
       MemorySize:  256
       Timeout: 30
       Role: !GetAtt CaLambdaRole.Arn
-      KmsKeyArn: !GetAtt CaCmsKey.Arn
       Environment:
         Variables:
           CA_BUCKET:
@@ -456,6 +449,6 @@ Outputs:
     CertEnrollLambda:
        Description: ARN of Lambda for certificate generation 
        Value: !GetAtt generateCertificateBundle.Arn
-    CaCmsKey:
+    CaKmsKey:
        Description: CA CMS Crypto key 
-       Value: !GetAtt CaCmsKey.Arn
+       Value: !GetAtt CaKmsKey.Arn

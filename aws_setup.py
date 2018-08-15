@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# -*- coding: utf-8 -*-
 """
  Copyright 2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
@@ -94,16 +93,16 @@ def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vp
 
     # Get the Output values
     outputs = cf.describe_stacks(StackName=stackname)['Stacks'][0]['Outputs']
-    caCmsKey = outputs[1]['OutputValue']
+    caCmkKey = outputs[1]['OutputValue']
     certEnrollLamnda = outputs[0]['OutputValue']
 
-    print('Created CA CMS key ' + caCmsKey)
+    print('Created CA CMK key ' + caCmkKey)
     print('Certificate generation lambda ' + certEnrollLamnda)
 
-    return caCmsKey, certEnrollLamnda
+    return caCmkKey, certEnrollLamnda
 
 # Generates a CA key and certificate
-def generate_ca(region, hostcerts_bucket, cacrypto_bucket, leavecakey, caCmsKey, certEnrollLamnda):
+def generate_ca(region, hostcerts_bucket, cacrypto_bucket, leavecakey, caCmkKey, certEnrollLamnda):
 
 
     # Generate CA key pass with 128 Bytes
@@ -145,9 +144,9 @@ def generate_ca(region, hostcerts_bucket, cacrypto_bucket, leavecakey, caCmsKey,
         os.remove('ca.key.encrypted.pem')
         print('CA cert and key remove from local folder')
 
-    # Encrypt the key with CA CMS
+    # Encrypt the key with CA CMK
     kms = boto3.client('kms', region_name=region)
-    ency_token = base64.b64encode(kms.encrypt(KeyId=caCmsKey, Plaintext=rnd_token)['CiphertextBlob']).decode(
+    ency_token = base64.b64encode(kms.encrypt(KeyId=caCmkKey, Plaintext=rnd_token)['CiphertextBlob']).decode(
         encoding="utf-8")
 
     lmb = boto3.client('lambda', region_name=region)
@@ -157,6 +156,11 @@ def generate_ca(region, hostcerts_bucket, cacrypto_bucket, leavecakey, caCmsKey,
     boto3.client('lambda', region_name=region).update_function_configuration(FunctionName=certEnrollLamnda,
                                                                              Environment=env)
     print('Lambda function' + certEnrollLamnda + ' updated')
+    
+    # Restrict the CA key for encryption. Remove allow kms:encrypt action
+    policy_response = kms.get_key_policy( KeyId=caCmkKey, PolicyName='default')
+    kms.put_key_policy( KeyId=caCmkKey, PolicyName='default', Policy=policy_response['Policy'].replace('"kms:Encrypt",','') )
+    print('Resource policy for CA CMK hardened - removed action kms:encrypt') 
 
 
 #  Starts the main procedure
@@ -231,10 +235,10 @@ if __name__ == '__main__':
 
     upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
     
-    caCmsKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket, args.vpc_id)
+    caCmkKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket, args.vpc_id)
 
     if args.ca_use_existing == 'no':
-        generate_ca(args.region, hostcerts_bucket, cacrypto_bucket, args.leave_cakey_in_folder, caCmsKey,
+        generate_ca(args.region, hostcerts_bucket, cacrypto_bucket, args.leave_cakey_in_folder, caCmkKey,
                     certEnrollLamnda)
 
     print('done :-)')

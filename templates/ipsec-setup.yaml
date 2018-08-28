@@ -203,6 +203,18 @@ Resources:
                   timer.cancel()
                   cfnresponse.send(event, context, status, {}, None)
 
+  CaBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateCaS3Bucket
+    Properties:
+      Tags: []
+
+  UserCertsBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateUserCertsS3Bucket
+    Properties:
+      Tags: []
+
   DecryptCaKeyEncryptUserP12Policy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
@@ -444,12 +456,18 @@ Resources:
       Environment:
         Variables:
           CA_BUCKET:
-            Ref: S3CaBucket
+            Fn::If:
+              - CreateCaS3Bucket
+              - !Ref CaBucket
+              - !Ref S3CaBucket
           CA_FILE: ca.cert.pem
           CA_KEY_FILE: ca.key.encrypted.pem
           CA_PWD: "Put yourCA key password here"
           CERTS_BUCKET:
-            Ref: S3UserCertsBucket
+            Fn::If:
+              - CreateUserCertsS3Bucket
+              - !Ref UserCertsBucket
+              - !Ref S3UserCertsBucket
           P12_CMS_KEYID: !Sub "alias/${AWS::StackName}-USER"
 
   IPSecSetupLambda:

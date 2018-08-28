@@ -25,6 +25,7 @@ Parameters:
   S3SourcesBucket:
     Type: String
     Description: Bucket with sources
+    Default: ''
     MaxLength: 63
     MinLength: 3
 
@@ -32,22 +33,176 @@ Parameters:
     Type: String
     Description: CA bucket with CA key and certificate. Keys are constant ca.cert.pem and ce.key.encrypted.pem
                  Password must be provided and encrypted in Lambda env parameters
+    Default: ''
     MaxLength: 63
     MinLength: 3
 
   S3UserCertsBucket:
     Type: String
     Description: User certs bucket where the cert will be published
+    Default: ''
     MaxLength: 63
     MinLength: 3
+
+  QSS3BucketName:
+    AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$'
+    ConstraintDescription: >-
+      Quick Start bucket name can include numbers, lowercase letters, uppercase
+      letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Default: aws-quickstart
+    Description: >-
+      S3 bucket name for the Quick Start assets.
+      Only change this value if you customize or extend the Quick Start for your own use.
+      This string can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).
+    Type: String
+
+  QSS3KeyPrefix:
+    AllowedPattern: '^[0-9a-zA-Z-/]*[/]$'
+    ConstraintDescription: >-
+      Quick Start key prefix can include numbers, lowercase letters, uppercase
+      letters, hyphens (-), and forward slash (/) and must terminate in a forward slash.
+    Default: quickstart-ec2-ipsec-mesh/
+    Description: >-
+      S3 key prefix for the Quick Start assets.
+      Only change this value if you customize or extend the Quick Start for your own use.
+      Quick Start key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-),
+      and forward slash (/) and must terminate in a forward slash.
+    Type: String
 
   VpcId:
     Type: String
     Description: Provide the vpc-id if you want restict the provisioning
     Default: 'any'
 
+Conditions:
+
+  CreateCaS3Bucket: !Not
+    - !Equals
+        - ''
+        - !Ref 'S3CaBucket'
+
+  CreateUserCertsS3Bucket: !Not
+    - !Equals
+        - ''
+        - !Ref 'S3UserCertsBucket'
+
 Resources:
- 
+
+  IPSecLambdaConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags: []
+
+  CopyZips:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
+      DestBucket: !Ref 'IPSecLambdaConfigBucket'
+      SourceBucket: !Ref 'QSS3BucketName'
+      Prefix: !Ref 'QSS3KeyPrefix'
+      Objects:
+        - functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip
+        - functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip
+        - functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip
+        - config/clear
+        - config/clear-or-private
+        - config/oe-cert.conf
+        - config/private
+        - config/private-or-clear
+
+  CopyZipsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+      Policies:
+        - PolicyName: lambda-copier
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${IPSecLambdaConfigBucket}/${QSS3KeyPrefix}*'
+
+  CopyZipsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python2.7
+      Role: !GetAtt 'CopyZipsRole.Arn'
+      Timeout: 240
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import threading
+          import boto3
+          import cfnresponse
+
+
+          def copy_objects(source_bucket, dest_bucket, prefix, objects):
+              s3 = boto3.client('s3')
+              for o in objects:
+                  key = prefix + o
+                  copy_source = {
+                      'Bucket': source_bucket,
+                      'Key': key
+                  }
+                  s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=key)
+
+
+          def delete_objects(bucket, prefix, objects):
+              s3 = boto3.client('s3')
+              objects = {'Objects': [{'Key': prefix + o} for o in objects]}
+              s3.delete_objects(Bucket=bucket, Delete=objects)
+
+
+          def timeout(event, context):
+              logging.error('Execution is about to time out, sending failure response to CloudFormation')
+              cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+
+
+          def handler(event, context):
+              # make sure we send a failure to CloudFormation if the function is going to timeout
+              timer = threading.Timer((context.get_remaining_time_in_millis() / 1000.00) - 0.5, timeout, args=[event, context])
+              timer.start()
+
+              print('Received event: %s' % json.dumps(event))
+              status = cfnresponse.SUCCESS
+              try:
+                  source_bucket = event['ResourceProperties']['SourceBucket']
+                  dest_bucket = event['ResourceProperties']['DestBucket']
+                  prefix = event['ResourceProperties']['Prefix']
+                  objects = event['ResourceProperties']['Objects']
+                  if event['RequestType'] == 'Delete':
+                      delete_objects(dest_bucket, prefix, objects)
+                  else:
+                      copy_objects(source_bucket, dest_bucket, prefix, objects)
+              except Exception as e:
+                  logging.error('Exception: %s' % e, exc_info=True)
+                  status = cfnresponse.FAILED
+              finally:
+                  timer.cancel()
+                  cfnresponse.send(event, context, status, {}, None)
+
   DecryptCaKeyEncryptUserP12Policy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
@@ -280,9 +435,8 @@ Resources:
       Handler: generate_certifcate_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket:
-          Ref: S3SourcesBucket
-        S3Key: 'generate_certifcate_lambda_function.zip'
+        S3Bucket: !Ref 'IPSecLambdaConfigBucket'
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip'
       Description: 'Generates certificates'
       MemorySize:  256
       Timeout: 30
@@ -307,9 +461,8 @@ Resources:
       Handler: ipsec_setup_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket:
-          Ref: S3SourcesBucket
-        S3Key: 'ipsec_setup_lambda_function.zip'
+        S3Bucket: !Ref 'IPSecLambdaConfigBucket'
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/enroll_cert_lambda_function/ipsec_setup_lambda_function.zip'
       Description: 'Configures IPSec and certificate on EC2 over SSM'
       MemorySize:  320
       Timeout: 180
@@ -324,7 +477,7 @@ Resources:
           VpcId:
             Ref: VpcId
           SourceBucket:
-            Ref: S3SourcesBucket
+            Ref: IPSecLambdaConfigBucket
 
   enrollCertLambda:
     Type: 'AWS::Lambda::Function'
@@ -335,9 +488,8 @@ Resources:
       Handler: enroll_cert_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: 
-          Ref: S3SourcesBucket
-        S3Key: 'enroll_cert_lambda_function.zip'
+        S3Bucket: !Ref 'IPSecLambdaConfigBucket'
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip'
       Description: 'Enrolls certifcate on EC2 over SSM'
       MemorySize:  320
       Timeout: 300

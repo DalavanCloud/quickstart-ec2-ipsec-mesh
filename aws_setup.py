@@ -22,7 +22,7 @@ conf_source_files = ['config/clear', 'config/private', 'config/clear-or-private'
                      'sources/enroll_cert_lambda_function.zip', 'sources/generate_certifcate_lambda_function.zip',
                      'sources/ipsec_setup_lambda_function.zip',
                      'sources/cron.txt', 'sources/cronIPSecStats.sh',
-                     'sources/ipsecSetup.yaml', 'sources/setup_ipsec.sh',
+                     'sources/ipsec-setup.yaml', 'sources/setup_ipsec.sh',
                      'README.md', 'aws_setup.py']
 
 code_version = "0.3"
@@ -75,7 +75,7 @@ def upload_files(region, hostcerts_bucket, sources_bucket):
 # Provisions stack
 def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vpcId):
     cf = boto3.client('cloudformation', region_name=region)
-    cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsecSetup.yaml',
+    cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsec-setup.yaml',
                     Parameters=[
                         {'ParameterKey': 'S3SourcesBucket', 'ParameterValue': sources_bucket},
                         {'ParameterKey': 'S3CaBucket', 'ParameterValue': cacrypto_bucket},

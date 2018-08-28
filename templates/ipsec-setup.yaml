@@ -518,7 +518,7 @@ Resources:
           SelectorTagName: IPSec
           SelectorTagValue: enabled
           SourceBucket:
-            Ref: S3SourcesBucket
+            Ref: IPSecLambdaConfigBucket
 
   eventIPSecSetup:
      DependsOn:

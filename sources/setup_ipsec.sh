@@ -93,19 +93,19 @@ if [ $? -ne 0 ]; then
 fi
 
 # download ipsec policies
-aws s3 cp "s3://$configBucket/private" . && \
-aws s3 cp "s3://$configBucket/private-or-clear" . && \
-aws s3 cp "s3://$configBucket/clear-or-private" . && \
-aws s3 cp "s3://$configBucket/clear" . && \
-aws s3 cp "s3://$configBucket/oe-cert.conf" . && \
+aws s3 cp "s3://$configBucket/config/private" . && \
+aws s3 cp "s3://$configBucket/config/private-or-clear" . && \
+aws s3 cp "s3://$configBucket/config/clear-or-private" . && \
+aws s3 cp "s3://$configBucket/config/clear" . && \
+aws s3 cp "s3://$configBucket/config/oe-cert.conf" . && \
 if [ $? -ne 0 ]; then
 	echo "Error: Failed to download configs from s3://$configBucket files: oe-cert.conf, private, clear "
 	exit 4
 fi
 
 # download the ipsec statistics
-aws s3 cp "s3://$configBucket/cronIPSecStats.sh" . && \
-aws s3 cp "s3://$configBucket/cron.txt" .
+aws s3 cp "s3://$configBucket/sources/cronIPSecStats.sh" . && \
+aws s3 cp "s3://$configBucket/sources/cron.txt" .
 if [ $? -ne 0 ]; then
 	echo "Error: Failed to download IPSec stats scripts from s3://$configBucket files: cronIPSecStats.sh and cron.txt "
 	exit 9

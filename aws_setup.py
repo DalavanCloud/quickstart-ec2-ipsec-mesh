@@ -18,14 +18,16 @@ import boto3, random, string, subprocess, botocore
 import os
 import base64
 
+"""
 conf_source_files = ['config/clear', 'config/private', 'config/clear-or-private', 'config/private-or-clear', 'config/oe-cert.conf',
                      'sources/enroll_cert_lambda_function.zip', 'sources/generate_certifcate_lambda_function.zip',
                      'sources/ipsec_setup_lambda_function.zip',
                      'sources/cron.txt', 'sources/cronIPSecStats.sh',
                      'sources/ipsec-setup.yaml', 'sources/setup_ipsec.sh',
                      'README.md', 'aws_setup.py']
+"""
 
-code_version = "0.3"
+code_version = "0.4"
 
 # Create bucket if does not exists
 # if the bucket exists the region must match 
@@ -75,9 +77,10 @@ def upload_files(region, hostcerts_bucket, sources_bucket):
 # Provisions stack
 def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vpcId):
     cf = boto3.client('cloudformation', region_name=region)
+    # TBD here we start the stackset - we need for this s3://location  
     cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsec-setup.yaml',
                     Parameters=[
-                        {'ParameterKey': 'S3SourcesBucket', 'ParameterValue': sources_bucket},
+                    #    {'ParameterKey': 'S3SourcesBucket', 'ParameterValue': sources_bucket},
                         {'ParameterKey': 'S3CaBucket', 'ParameterValue': cacrypto_bucket},
                         {'ParameterKey': 'S3UserCertsBucket', 'ParameterValue': hostcerts_bucket},
                         {'ParameterKey': 'VpcId', 'ParameterValue': vpcId}],
@@ -232,8 +235,8 @@ if __name__ == '__main__':
     if answer != 'yes':
         print('Did not provide "yes" answer,exiting...')
         quit()
-
-    upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
+    
+    # upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
     
     caCmkKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket, args.vpc_id)
 

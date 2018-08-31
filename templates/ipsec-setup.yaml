@@ -27,15 +27,11 @@ Parameters:
     Description: CA bucket with CA key and certificate. Keys are constant ca.cert.pem and ce.key.encrypted.pem
                  Password must be provided and encrypted in Lambda env parameters
     Default: ''
-    MaxLength: 63
-    MinLength: 3
 
   S3UserCertsBucket:
     Type: String
     Description: User certs bucket where the cert will be published
     Default: ''
-    MaxLength: 63
-    MinLength: 3
 
   QSS3BucketName:
     AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$'

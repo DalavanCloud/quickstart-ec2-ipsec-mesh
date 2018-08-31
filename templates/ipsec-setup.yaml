@@ -473,7 +473,7 @@ Resources:
       Runtime: python3.6
       Code:
         S3Bucket: !Ref 'IPSecLambdaConfigBucket'
-        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/enroll_cert_lambda_function/ipsec_setup_lambda_function.zip'
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip'
       Description: 'Configures IPSec and certificate on EC2 over SSM'
       MemorySize:  320
       Timeout: 180

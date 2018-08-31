@@ -435,6 +435,7 @@ Resources:
     DependsOn:
       - CaLambdaRole
       - CaKmsKey
+      - CopyZips
     Properties:
       FunctionName: !Sub "GenerateCertificate-${AWS::StackName}"
       Handler: generate_certifcate_lambda_function.lambda_handler
@@ -467,6 +468,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     DependsOn:
       - IPSecLambdaRole
+      - CopyZips
     Properties:
       FunctionName: !Sub "IPSecSetup-${AWS::StackName}"
       Handler: ipsec_setup_lambda_function.lambda_handler
@@ -494,6 +496,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     DependsOn:
       - IPSecLambdaRole
+      - CopyZips
     Properties:
       FunctionName: !Sub "ReenrollCertificate-${AWS::StackName}"
       Handler: enroll_cert_lambda_function.lambda_handler

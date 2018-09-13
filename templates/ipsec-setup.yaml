@@ -94,12 +94,12 @@ Resources:
         - functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip
         - functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip
         - functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip
+        - functions/packages/generate_ca_lambda_function/generate_ca_lambda_function.zip
         - config/clear
         - config/clear-or-private
         - config/oe-cert.conf
         - config/private
         - config/private-or-clear
-          # no sure if we need to copy the sources     
         - sources/cron.txt
         - sources/cronIPSecStats.sh
         - sources/setup_ipsec.sh  
@@ -150,7 +150,6 @@ Resources:
           import boto3
           import cfnresponse
 
-
           def copy_objects(source_bucket, dest_bucket, prefix, objects):
               s3 = boto3.client('s3')
               for o in objects:
@@ -161,17 +160,14 @@ Resources:
                   }
                   s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=key)
 
-
           def delete_objects(bucket, prefix, objects):
               s3 = boto3.client('s3')
               objects = {'Objects': [{'Key': prefix + o} for o in objects]}
               s3.delete_objects(Bucket=bucket, Delete=objects)
 
-
           def timeout(event, context):
               logging.error('Execution is about to time out, sending failure response to CloudFormation')
               cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
-
 
           def handler(event, context):
               # make sure we send a failure to CloudFormation if the function is going to timeout
@@ -195,6 +191,68 @@ Resources:
               finally:
                   timer.cancel()
                   cfnresponse.send(event, context, status, {}, None)
+
+
+  CaGenerateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+      Policies:
+        - PolicyName: lambda-cagenerate
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionConfiguration
+                Resource:
+                  - !GetAtt generateCertificateBundle.Arn
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Get*
+                  - kms:*Policy  
+                Resource:
+                  - !GetAtt CaKmsKey.Arn
+
+  CaGenerateFunction:
+    DependsOn:
+      - CaKmsKey
+      - generateCertificateBundle  
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Generates CA key 
+      Handler: ca_generate_lamnda_function.lambda_handler
+      Runtime: python3.6
+      Role: !Ref CaGenerateRole
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref 'IPSecLambdaConfigBucket'
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/generate_ca_lambda_function/generate_ca_lambda_function.zip'
+      Description: "Generates CA keys"
+
+  CaGenerate:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt 'CaGenerateFunction.Arn'
+      region: !Sub '${AWS::Region}'
+      cacrypto_bucket:  !Ref CaBucket
+      caCmkKey: !GetAtt CaKmsKey.Arn
+      certEnrollLamnda: !GetAtt generateCertificateBundle.Arn
 
   CaBucket:
     Type: AWS::S3::Bucket

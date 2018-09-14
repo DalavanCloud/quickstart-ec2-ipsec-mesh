@@ -18,14 +18,13 @@ import boto3, random, string, subprocess, botocore
 import os
 import base64
 
-"""
 conf_source_files = ['config/clear', 'config/private', 'config/clear-or-private', 'config/private-or-clear', 'config/oe-cert.conf',
-                     'sources/enroll_cert_lambda_function.zip', 'sources/generate_certifcate_lambda_function.zip',
-                     'sources/ipsec_setup_lambda_function.zip',
-                     'sources/cron.txt', 'sources/cronIPSecStats.sh',
-                     'sources/ipsec-setup.yaml', 'sources/setup_ipsec.sh',
+                     'functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip', 
+                     'functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip',
+                     'functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip',
+                     'templates/ipsec-setup.yaml',
+                     'sources/cron.txt', 'sources/cronIPSecStats.sh', 'sources/setup_ipsec.sh',
                      'README.md', 'aws_setup.py']
-"""
 
 code_version = "0.4"
 
@@ -64,12 +63,7 @@ def upload_files(region, hostcerts_bucket, sources_bucket):
 
     for f in conf_source_files:
         data = open(f, 'rb')
-        # uploads the files in bucked without subkey/folders
-        try:
-            key = f.split('/')[1]
-        except:
-            key = f
-        s3.put_object(Bucket=sources_bucket, Key=key, Body=data)
+        s3.put_object(Bucket=sources_bucket, Key='ipsec/' + f , Body=data)
         print('File ' + f + ' uploaded in bucket ' + sources_bucket)
 
     createBucket(s3,region, hostcerts_bucket)
@@ -77,11 +71,12 @@ def upload_files(region, hostcerts_bucket, sources_bucket):
 # Provisions stack
 def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vpcId):
     cf = boto3.client('cloudformation', region_name=region)
-    # TBD here we start the stackset - we need for this s3://location  
-    cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsec-setup.yaml',
+    cf.create_stack(StackName=stackname, TemplateURL='https://s3.amazonaws.com/' + sources_bucket + '/ipsec/templates/ipsec-setup.yaml',
                     Parameters=[
-                    #    {'ParameterKey': 'S3SourcesBucket', 'ParameterValue': sources_bucket},
+                        {'ParameterKey': 'QSS3BucketName', 'ParameterValue': sources_bucket},
+                        {'ParameterKey': 'QSS3KeyPrefix', 'ParameterValue': 'ipsec/'},
                         {'ParameterKey': 'S3CaBucket', 'ParameterValue': cacrypto_bucket},
+                        {'ParameterKey': 'S3ConfigsBucket', 'ParameterValue': sources_bucket},
                         {'ParameterKey': 'S3UserCertsBucket', 'ParameterValue': hostcerts_bucket},
                         {'ParameterKey': 'VpcId', 'ParameterValue': vpcId}],
                     Capabilities=['CAPABILITY_NAMED_IAM'])
@@ -236,7 +231,7 @@ if __name__ == '__main__':
         print('Did not provide "yes" answer,exiting...')
         quit()
     
-    # upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
+    upload_files(args.region, hostcerts_bucket, conf_sources_bucket)
     
     caCmkKey, certEnrollLamnda = provision_stack(args.region, hostcerts_bucket, cacrypto_bucket, conf_sources_bucket, args.vpc_id)
 

@@ -88,10 +88,8 @@ Conditions:
 Resources:
 
   ResS3ConfigsBucket:
-    Condition: CreateQSHelpers
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref 'S3ConfigsBucket'  
       Tags: []
       BucketEncryption:  
         ServerSideEncryptionConfiguration:
@@ -100,10 +98,9 @@ Resources:
     DeletionPolicy: Delete
 
   CaBucket:
-    Condition: CreateQSHelpers
+    Condition: CreateCaS3Bucket
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref 'S3CaBucket'
       Tags: []
       BucketEncryption:  
         ServerSideEncryptionConfiguration:
@@ -112,10 +109,9 @@ Resources:
     DeletionPolicy: Delete
 
   UserCertsBucket:
-    Condition: CreateQSHelpers
+    Condition: CreateUserCertsS3Bucket
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref 'S3UserCertsBucket'
       Tags: []
       BucketEncryption:  
         ServerSideEncryptionConfiguration:
@@ -127,7 +123,7 @@ Resources:
     Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
-      DestBucket: !Ref 'S3ConfigsBucket'
+      DestBucket: !Ref 'ResS3ConfigsBucket'
       SourceBucket: !Ref 'QSS3BucketName'
       Prefix: !Ref 'QSS3KeyPrefix'
       Objects:
@@ -171,12 +167,12 @@ Resources:
                   - s3:PutObject
                   - s3:DeleteObject
                 Resource:
-                  - !Sub 'arn:aws:s3:::${S3ConfigsBucket}/${QSS3KeyPrefix}*'
+                  - !Sub 'arn:aws:s3:::${ResS3ConfigsBucket}/${QSS3KeyPrefix}*'
 
   CopyZipsFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "CopyZipsTemp-${AWS::StackName}"
+      FunctionName: !Sub "CopyZipsFunction-${AWS::StackName}"
       Description: Copies objects from a source S3 bucket to a destination
       Handler: index.handler
       Runtime: python2.7
@@ -257,7 +253,10 @@ Resources:
                 Action:
                   - s3:PutObject
                 Resource:
-                  - !Sub 'arn:aws:s3:::${S3CaBucket}/*'
+                  - Fn::If:
+                      - CreateCaS3Bucket
+                      - !Sub 'arn:aws:s3:::${CaBucket}/*'
+                      - !Sub 'arn:aws:s3:::${S3CaBucket}/*'
               - Effect: Allow
                 Action:
                   - lambda:UpdateFunctionConfiguration
@@ -371,7 +370,11 @@ Resources:
     Properties:
       ServiceToken: !GetAtt 'CaGenerateFunction.Arn'
       region: !Sub '${AWS::Region}'
-      cacrypto_bucket: !Ref S3CaBucket  
+      cacrypto_bucket:
+        Fn::If:
+          - CreateCaS3Bucket
+          - !Ref CaBucket
+          - !Ref S3CaBucket
       caCmkKey:  !GetAtt CaKmsKey.Arn
       certEnrollLamnda: !GetAtt generateCertificateBundle.Arn
 
@@ -609,7 +612,7 @@ Resources:
       Handler: generate_certifcate_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'S3ConfigsBucket'
+        S3Bucket: !Ref 'ResS3ConfigsBucket'
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip'
       Description: 'Generates certificates'
       MemorySize:  256
@@ -617,11 +620,19 @@ Resources:
       Role: !GetAtt CaLambdaRole.Arn
       Environment:
         Variables:
-          CA_BUCKET: !Ref S3CaBucket
+          CA_BUCKET:
+            Fn::If:
+              - CreateCaS3Bucket
+              - !Ref CaBucket
+              - !Ref S3CaBucket
           CA_FILE: ca.cert.pem
           CA_KEY_FILE: ca.key.encrypted.pem
           CA_PWD: "Put yourCA key password here"
-          CERTS_BUCKET:  !Ref S3UserCertsBucket
+          CERTS_BUCKET:
+            Fn::If:
+              - CreateUserCertsS3Bucket
+              - !Ref UserCertsBucket
+              - !Ref S3UserCertsBucket
           P12_CMS_KEYID: !Sub "alias/${AWS::StackName}-USER"
 
   IPSecSetupLambda:
@@ -634,7 +645,7 @@ Resources:
       Handler: ipsec_setup_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'S3ConfigsBucket'
+        S3Bucket: !Ref 'ResS3ConfigsBucket'
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip'
       Description: 'Configures IPSec and certificate on EC2 over SSM'
       MemorySize:  320
@@ -650,7 +661,7 @@ Resources:
           VpcId:
             Ref: VpcId
           SourceBucket:
-            Ref: S3ConfigsBucket
+            Ref: ResS3ConfigsBucket
           SourcePrefix:
             Ref: QSS3KeyPrefix 
 
@@ -664,7 +675,7 @@ Resources:
       Handler: enroll_cert_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'S3ConfigsBucket'
+        S3Bucket: !Ref 'ResS3ConfigsBucket'
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip'
       Description: 'Enrolls certifcate on EC2 over SSM'
       MemorySize:  320
@@ -676,7 +687,7 @@ Resources:
           SelectorTagName: IPSec
           SelectorTagValue: enabled
           SourceBucket:
-            Ref: S3ConfigsBucket
+            Ref: ResS3ConfigsBucket
 
   eventIPSecSetup:
      DependsOn:

@@ -1,17 +1,20 @@
 #
-# Copyright 2017-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is located at
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# or in the "license" file accompanying this file. This file is distributed
-# on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
-# express or implied. See the License for the specific language governing
-# permissions and limitations under the License.
-#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# 
 # ===========================
 # NO CHANGE SHOUD BE REQUIRED
 # ===========================
@@ -69,25 +72,37 @@ Parameters:
     Description: Provide the vpc-id if you want restict the provisioning
     Default: 'any'
 
+  EC2RoleArn:
+    Type: String
+    Description: Provide the Arn of EC2 Role to be allowed to decrypt host certificate with CMS
+    Default: ''
+
 Conditions:
 
-  CreateCaS3Bucket: !Not
-    - !Equals
+  CreateCaS3Bucket: 
+    !Equals
         - ''
         - !Ref 'S3CaBucket'
 
-  CreateUserCertsS3Bucket: !Not
-    - !Equals
+  CreateUserCertsS3Bucket:  
+    !Equals
         - ''
         - !Ref 'S3UserCertsBucket'
 
   CreateQSHelpers: !Not
-    - !Equals
+     - !Equals
         - !Ref 'S3ConfigsBucket'
         - !Ref 'QSS3BucketName'
+
+  UseExistingEC2Role: 
+    !Equals
+        - ''
+        - !Ref 'EC2RoleArn'
+
 Resources:
 
   ResS3ConfigsBucket:
+    Condition: CreateQSHelpers
     Type: AWS::S3::Bucket
     Properties:
       Tags: []
@@ -123,7 +138,7 @@ Resources:
     Type: AWS::CloudFormation::CustomResource
     Properties:
       ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
-      DestBucket: !Ref 'ResS3ConfigsBucket'
+      DestBucket: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
       SourceBucket: !Ref 'QSS3BucketName'
       Prefix: !Ref 'QSS3KeyPrefix'
       Objects:
@@ -166,8 +181,10 @@ Resources:
                 Action:
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource:
-                  - !Sub 'arn:aws:s3:::${ResS3ConfigsBucket}/${QSS3KeyPrefix}*'
+                Resource: !If
+                   - CreateQSHelpers
+                   - !Sub 'arn:aws:s3:::${ResS3ConfigsBucket}/${QSS3KeyPrefix}*' 
+                   - !Sub 'arn:aws:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'                       
 
   CopyZipsFunction:
     Type: AWS::Lambda::Function
@@ -280,7 +297,6 @@ Resources:
     DependsOn:
       - CaKmsKey
       - generateCertificateBundle 
-      - CaBucket  
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "CaGenerate-${AWS::StackName}"
@@ -582,7 +598,9 @@ Resources:
         - Sid: Use of the key by EC2
           Effect: Allow
           Principal:
-            AWS: !GetAtt Ec2Role.Arn
+            AWS: 
+                - !GetAtt Ec2Role.Arn
+                - !If [UseExistingEC2Role, !GetAtt Ec2Role.Arn, !Ref EC2RoleArn]
           Action: ['kms:Decrypt' ]
           Resource: '*'
         - Sid: Use of the key ID Lambda cert issuer
@@ -612,7 +630,7 @@ Resources:
       Handler: generate_certifcate_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'ResS3ConfigsBucket'
+        S3Bucket: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip'
       Description: 'Generates certificates'
       MemorySize:  256
@@ -645,7 +663,7 @@ Resources:
       Handler: ipsec_setup_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'ResS3ConfigsBucket'
+        S3Bucket:  !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip'
       Description: 'Configures IPSec and certificate on EC2 over SSM'
       MemorySize:  320
@@ -660,8 +678,7 @@ Resources:
           SelectorTagValue: todo
           VpcId:
             Ref: VpcId
-          SourceBucket:
-            Ref: ResS3ConfigsBucket
+          SourceBucket: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
           SourcePrefix:
             Ref: QSS3KeyPrefix 
 
@@ -675,7 +692,7 @@ Resources:
       Handler: enroll_cert_lambda_function.lambda_handler
       Runtime: python3.6
       Code:
-        S3Bucket: !Ref 'ResS3ConfigsBucket'
+        S3Bucket:  !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
         S3Key: !Sub '${QSS3KeyPrefix}functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip'
       Description: 'Enrolls certifcate on EC2 over SSM'
       MemorySize:  320
@@ -686,8 +703,7 @@ Resources:
           IPSecSetupLambda: !Sub "IPSecSetup-${AWS::StackName}"
           SelectorTagName: IPSec
           SelectorTagValue: enabled
-          SourceBucket:
-            Ref: ResS3ConfigsBucket
+          SourceBucket: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
 
   eventIPSecSetup:
      DependsOn:
@@ -791,3 +807,13 @@ Outputs:
     CaKmsKey:
        Description: CA CMS Crypto key 
        Value: !GetAtt CaKmsKey.Arn
+    CaS3Bucket:
+       Description: S3 CA Bucket
+       Value: !If [CreateCaS3Bucket, !Ref CaBucket, !Ref S3CaBucket]
+    CertsS3Bucket:
+       Description: S3 Bucket with published certificates 
+       Value: !If [CreateUserCertsS3Bucket, !Ref UserCertsBucket, !Ref S3UserCertsBucket]
+    ConfigSourcesS3Bucket:
+       Description: S3 Bucket with IPSec configs and sources
+       Value: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
+

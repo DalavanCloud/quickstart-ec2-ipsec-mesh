@@ -81,7 +81,7 @@ def provision_stack(region, hostcerts_bucket, cacrypto_bucket, sources_bucket,vp
                         {'ParameterKey': 'QSS3BucketName', 'ParameterValue': sources_bucket},
                         {'ParameterKey': 'QSS3KeyPrefix', 'ParameterValue': 'ipsec/'},
                         {'ParameterKey': 'S3CaBucket', 'ParameterValue': cacrypto_bucket},
-                        {'ParameterKey': 'S3ConfigsBucket', 'ParameterValue': sources_bucket},
+                        {'ParameterKey': 'UseLocalShellScript', 'ParameterValue': 'yes'},
                         {'ParameterKey': 'S3UserCertsBucket', 'ParameterValue': hostcerts_bucket},
                         {'ParameterKey': 'VpcId', 'ParameterValue': vpcId}],
                     Capabilities=['CAPABILITY_NAMED_IAM'])
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     print('AWS stackname:                ' + stackname)
     print('---------------------------- ')
 
-    answer = raw_input('Do you want to proceed ? [yes|no]: ')
+    answer = input('Do you want to proceed ? [yes|no]: ')
     if answer != 'yes':
         print('Did not provide "yes" answer,exiting...')
         quit()

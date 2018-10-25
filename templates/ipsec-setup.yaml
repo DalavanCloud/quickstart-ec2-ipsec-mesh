@@ -36,10 +36,13 @@ Parameters:
     Description: User certs bucket where the cert will be published
     Default: ''
 
-  S3ConfigsBucket:
+  UseLocalShellScript:
     Type: String
-    Description: Config and sources for setup of ipsec and EC2 and lambnda-functions
-    Default: ''
+    Description: If you use local shell script (aws_setup.py) to setup CA and upload files (no|yes) 
+    Default: 'no'
+    AllowedValues: 
+      - 'yes'
+      - 'no'
 
   QSS3BucketName:
     AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-\.]*[0-9a-zA-Z])*$'
@@ -89,10 +92,10 @@ Conditions:
         - ''
         - !Ref 'S3UserCertsBucket'
 
-  CreateQSHelpers: !Not
-     - !Equals
-        - !Ref 'S3ConfigsBucket'
-        - !Ref 'QSS3BucketName'
+  CreateQSHelpers:
+    !Equals
+        - !Ref 'UseLocalShellScript'
+        - 'no'
 
   UseExistingEC2Role: 
     !Equals
@@ -157,6 +160,7 @@ Resources:
   CopyZipsRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "CopyZipsRole-${AWS::StackName}"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -187,13 +191,19 @@ Resources:
                    - !Sub 'arn:aws:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'                       
 
   CopyZipsFunction:
+    DependsOn: 
+        - CopyZipsRole
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "CopyZipsFunction-${AWS::StackName}"
       Description: Copies objects from a source S3 bucket to a destination
       Handler: index.handler
       Runtime: python2.7
-      Role: !GetAtt 'CopyZipsRole.Arn'
+      #      Role: !GetAtt 'CopyZipsRole.Arn'
+      Role: !Join
+         - ''
+         - - !Sub "arn:aws:iam::${AWS::AccountId}:role/" 
+           - !Sub "CopyZipsRole-${AWS::StackName}"
       Timeout: 240
       Code:
         ZipFile: |
@@ -535,6 +545,8 @@ Resources:
         - Ref: LambdaIPSecPolicy
 
   CaKmsKey:
+    DependsOn:
+      - CaLambdaRole
     Type: "AWS::KMS::Key"
     Properties:
       Description: Protects the CA key
@@ -600,7 +612,7 @@ Resources:
           Principal:
             AWS: 
                 - !GetAtt Ec2Role.Arn
-                - !If [UseExistingEC2Role, !GetAtt Ec2Role.Arn, !Ref EC2RoleArn]
+                - !If [UseExistingEC2Role, !Ref EC2RoleArn, !Ref "AWS::NoValue" ]
           Action: ['kms:Decrypt' ]
           Resource: '*'
         - Sid: Use of the key ID Lambda cert issuer

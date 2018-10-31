@@ -75,9 +75,9 @@ Parameters:
     Description: Provide the vpc-id if you want restict the provisioning
     Default: 'any'
 
-  EC2RoleArn:
+  ExistingEC2RoleArn:
     Type: String
-    Description: Provide the Arn of EC2 Role to be allowed to decrypt host certificate with CMS
+    Description: Optional provide existing Arn of EC2 Role to be allowed to decrypt host certificate with CMS
     Default: ''
 
 Conditions:
@@ -97,10 +97,10 @@ Conditions:
         - !Ref 'UseLocalShellScript'
         - 'no'
 
-  UseExistingEC2Role: 
-    !Equals
+  UseExistingEC2Role: !Not
+     - !Equals
         - ''
-        - !Ref 'EC2RoleArn'
+        - !Ref 'ExistingEC2RoleArn'
 
 Resources:
 
@@ -148,6 +148,7 @@ Resources:
         - functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip
         - functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip
         - functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip
+        - functions/packages/ca_initialize_lambda_function/ca_initialize_lambda_function.zip
         - config/clear
         - config/clear-or-private
         - config/oe-cert.conf
@@ -309,86 +310,15 @@ Resources:
       - generateCertificateBundle 
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "CaGenerate-${AWS::StackName}"
+      FunctionName: !Sub "CA-initialize-${AWS::StackName}"
       Description: Generates CA keys 
-      Handler: index.handler
+      Handler: ca_initialize_lambda_function.lambda_handler
       Runtime: python3.6
       Role: !GetAtt CaGenerateRole.Arn
       Timeout: 60
       Code:
-       ZipFile: |
-        import json, os, subprocess, base64, boto3, threading, logging
-        import cfnresponse 
-        
-        def timeout(event, context):
-            logging.error('Execution is about to time out, sending failure response to CloudFormation')
-            cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
-        
-        def handler(event, context):
-            if event['RequestType'] == 'Delete':
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, None)
-                return
-            # make sure we send a failure to CloudFormation if the function is going to timeout
-            timer = threading.Timer((context.get_remaining_time_in_millis() / 1000.00) - 0.5, timeout, args=[event, context])
-            timer.start()
-            status = cfnresponse.SUCCESS    
-            try:
-                region = event['ResourceProperties']['region']
-                cacrypto_bucket = event['ResourceProperties']['cacrypto_bucket']    
-                caCmkKey = event['ResourceProperties']['caCmkKey']    
-                certEnrollLamnda = event['ResourceProperties']['certEnrollLamnda'] 
-                print(event)
-                print(cacrypto_bucket)
-                # Generate CA key pass with 128 Bytes
-                kmsclient = boto3.client('kms')
-                print("Generating key password with KMS (128 Bytes)"); 
-                random=kmsclient.generate_random(NumberOfBytes=128)
-                rnd_token=base64.b64encode(random[u'Plaintext']).decode(encoding="utf-8")
-                print("Generated ca password"); 
-                # Generation the key and cert with openssl
-                p = subprocess.Popen(
-                        'openssl genrsa -aes256 -out /tmp/ca.key.encrypted.pem  -passout pass:' + rnd_token + ' 4096 && openssl req -new -extensions v3_ca -sha256 -key /tmp/ca.key.encrypted.pem -x509 -days 3650 -out /tmp/cacert.pem -subj "/CN=ipsec.' + region + '" -passin pass:' + rnd_token,
-                    shell=True, stdout=subprocess.PIPE)
-                p.wait()
-                if p.returncode != 0:
-                    raise Exception('Error in execution of openssl script: ' + str(p.returncode))
-                else:
-                    print('Certificate and key generated. Subject CN=ipsec.' + region + ' Valid 10 years')
-                # Upload the encrypted key and CA cert
-                f = open("/tmp/ca.key.encrypted.pem",'rb')
-                s3 = boto3.client('s3', region_name=region)
-                s3.put_object(Bucket=cacrypto_bucket, Key='ca.key.encrypted.pem', Body=f)
-                print('Encrypted CA key uploaded in bucket ' + cacrypto_bucket)
-                f = open("/tmp/cacert.pem", 'rb')
-                s3.put_object(Bucket=cacrypto_bucket, Key='ca.cert.pem', Body=f)
-                print('CA cert uploaded in bucket ' + cacrypto_bucket)
-            
-                os.remove('/tmp/cacert.pem')
-                os.remove('/tmp/ca.key.encrypted.pem')
-            
-                # Encrypt the key with CA CMK
-                kms = boto3.client('kms', region_name=region)
-                ency_token = base64.b64encode(kms.encrypt(KeyId=caCmkKey, Plaintext=rnd_token)['CiphertextBlob']).decode(
-                    encoding="utf-8")
-            
-                lmb = boto3.client('lambda', region_name=region)
-                env = lmb.get_function_configuration(FunctionName=certEnrollLamnda)['Environment']
-                env['Variables']['CA_PWD'] = ency_token
-                boto3.client('lambda', region_name=region).update_function_configuration(FunctionName=certEnrollLamnda, Environment=env)
-                print('Lambda function' + certEnrollLamnda + ' updated')
-                
-                # Restrict the CA key for encryption. Remove allow kms:encrypt action
-                policy_response = kms.get_key_policy( KeyId=caCmkKey, PolicyName='default')
-                kms.put_key_policy( KeyId=caCmkKey, PolicyName='default', Policy=policy_response['Policy'].replace('"kms:Encrypt",','') )
-                print('Resource policy for CA CMK hardened - removed action kms:encrypt') 
-                
-            except Exception as e:
-                logging.error('Exception: %s' % e, exc_info=True)
-                status = cfnresponse.FAILED
-                
-            finally:
-                timer.cancel()
-                cfnresponse.send(event, context, status, {}, None)
+        S3Bucket: !If [CreateQSHelpers, !Ref 'ResS3ConfigsBucket', !Ref 'QSS3BucketName']
+        S3Key: !Sub '${QSS3KeyPrefix}functions/packages/ca_initialize_lambda_function/ca_initialize_lambda_function.zip'
 
   CaGenerate:
     Condition: CreateQSHelpers
@@ -566,11 +496,14 @@ Resources:
           Resource: '*'
         - Sid: Use of the key
           Effect: Allow
-          Principal:
-            AWS: !GetAtt CaLambdaRole.Arn
+          Principal: 
+            AWS: !Join
+              - ''
+              - - !Sub "arn:aws:iam::${AWS::AccountId}:role/" 
+                - !Sub "GenerateCertificate-${AWS::StackName}"
           Action: [ 'kms:Decrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey']
           Resource: '*'
-        - Sid: Allow local use 
+        - Sid: Allow initialization use 
           Effect: Allow
           Principal:
             AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
@@ -610,9 +543,7 @@ Resources:
         - Sid: Use of the key by EC2
           Effect: Allow
           Principal:
-            AWS: 
-                - !GetAtt Ec2Role.Arn
-                - !If [UseExistingEC2Role, !Ref EC2RoleArn, !Ref "AWS::NoValue" ]
+            AWS: !If [ UseExistingEC2Role, [ !Ref ExistingEC2RoleArn, !GetAtt Ec2Role.Arn], !GetAtt Ec2Role.Arn ]
           Action: ['kms:Decrypt' ]
           Resource: '*'
         - Sid: Use of the key ID Lambda cert issuer

@@ -20,13 +20,14 @@
 """
 
 import boto3, random, string, subprocess, botocore
-import os
+import os, sys
 import base64
 
 conf_source_files = ['config/clear', 'config/private', 'config/clear-or-private', 'config/private-or-clear', 'config/oe-cert.conf',
                      'functions/packages/enroll_cert_lambda_function/enroll_cert_lambda_function.zip', 
                      'functions/packages/generate_certifcate_lambda_function/generate_certifcate_lambda_function.zip',
                      'functions/packages/ipsec_setup_lambda_function/ipsec_setup_lambda_function.zip',
+                     'functions/packages/ca_initialize_lambda_function/ca_initialize_lambda_function.zip',
                      'templates/ipsec-setup.yaml',
                      'sources/cron.txt', 'sources/cronIPSecStats.sh', 'sources/setup_ipsec.sh',
                      'README.md', 'aws_setup.py']
@@ -169,6 +170,9 @@ def generate_ca(region, hostcerts_bucket, cacrypto_bucket, leavecakey, caCmkKey,
 #  Starts the main procedure
 if __name__ == '__main__':
     import argparse, sys, time
+     
+    if sys.version_info[0] < 3:
+      raise Exception("Please use python 3 or above.")
 
     p = argparse.ArgumentParser(description="Enrolls IPSec encryption in AWS account")
 
@@ -209,7 +213,7 @@ if __name__ == '__main__':
 
     args = p.parse_args()
 
-    #   Make random chars to add to buckt name if needed
+    #   Random chars to add to S3 bucket name if needed
     chars = string.ascii_lowercase
     rnd = ''.join(random.sample(chars * 8, 8))
 

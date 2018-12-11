@@ -50,11 +50,13 @@ Download the repo
   - **config/clear-or-private** should contain networks with optional IPSec protection. These networks will start clear and attempt to add IPSec.
   - **config/private-or-clear** should also contain networks with optional IPSec protection. However, these networks will start with IPSec and fail back to clear.
 
-## Installation with Quick Solution 
+## Installation using CloudFormation 
 
-- Start cloud formation stack provided in templates folder
+- Click the link below to launch the setup using CloudFormation  
+  [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?#/stacks/new?stackName=EC2-IPSec-Mesh&templateURL=https://aws-quickstart.s3.amazonaws.com/quickstart-ec2-ipsec-mesh/templates/ipsec-setup.yaml)
 
-## Installation from unix machine
+
+## Installation using aws_setup.py script
 
 On a trusted Unix/Linux/MacOS machine that has Admin access to AWS and AWS SDK for Python already installed, complete the following steps:
 

@@ -16,29 +16,62 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 # 
 # ===========================
-# NO CHANGE SHOUD BE REQUIRED
+# NO CHANGE SHOULD BE REQUIRED
 # ===========================
 #
 #
 
 AWSTemplateFormatVersion: 2010-09-09
 Description: Components for IPSec mesh, certificate generation, EC2 configration, metrics and cert renew
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: IPSec Mesh Configuration
+      Parameters:
+      - VpcId
+      - S3CaBucket
+      - S3UserCertsBucket
+      - UseLocalShellScript
+      - ExistingEC2RoleArn
+    - Label:
+        default: AWS Quick Start configuration
+      Parameters:
+      - QSS3BucketName
+      - QSS3KeyPrefix
+
+    ParameterLabels:
+      ExistingEC2RoleArn:
+        default: EC2 role ARN
+      VpcId:
+        default: VPC ID
+      QSS3BucketName:
+        default: Quick Start S3 bucket name
+      QSS3KeyPrefix:
+        default: Quick Start S3 key prefix
+      S3CaBucket:
+        default: CA S3 bucket
+      S3UserCertsBucket:
+        default: User Certs S3 bucket
+      UseLocalShellScript:
+        default: Use setup shell script
+
 Parameters:
 
   S3CaBucket:
     Type: String
-    Description: CA bucket with CA key and certificate. Keys are constant ca.cert.pem and ce.key.encrypted.pem
-                 Password must be provided and encrypted in Lambda env parameters
+    Description: (Optional) CA bucket with CA key and certificate. Keys are constant ca.cert.pem and ce.key.encrypted.pem.
+                 Password must be provided and encrypted in Lambda env parameters. If left blank, certificates will be generated.
     Default: ''
 
   S3UserCertsBucket:
     Type: String
-    Description: User certs bucket where the cert will be published
+    Description: User certs bucket where the cert will be published.
     Default: ''
 
   UseLocalShellScript:
     Type: String
-    Description: If you use local shell script (aws_setup.py) to setup CA and upload files (no|yes) 
+    Description: Choose yes to deploy this solution using provided script aws_setup.py instead of launching CloudFormation stack directly.
     Default: 'no'
     AllowedValues: 
       - 'yes'
@@ -72,12 +105,12 @@ Parameters:
 
   VpcId:
     Type: String
-    Description: Provide the vpc-id if you want restict the provisioning
+    Description: (Optional) ID of the existing VPC that the IP Sec setup should be restricted to.
     Default: 'any'
 
   ExistingEC2RoleArn:
     Type: String
-    Description: Optional provide existing Arn of EC2 Role to be allowed to decrypt host certificate with CMS
+    Description: (Optional) Existing Arn of EC2 Role to be allowed to decrypt host certificate with CMS.
     Default: ''
 
 Conditions:

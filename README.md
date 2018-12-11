@@ -52,7 +52,7 @@ Download the repo
 
 ## Installation using CloudFormation 
 
-- Click the link below to launch the setup using CloudFormation  
+Follow the link below to launch the setup using CloudFormation:  
   [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?#/stacks/new?stackName=EC2-IPSec-Mesh&templateURL=https://aws-quickstart.s3.amazonaws.com/quickstart-ec2-ipsec-mesh/templates/ipsec-setup.yaml)
 
 

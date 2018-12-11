@@ -22,7 +22,7 @@
 #
 
 AWSTemplateFormatVersion: 2010-09-09
-Description: Components for IPSec mesh, certificate generation, EC2 configration, metrics and cert renew
+Description: Components for IPSec mesh, certificate generation, EC2 configration, metrics and cert renew. (qs-1p4acj1id)
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
